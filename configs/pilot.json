@@ -17,9 +17,20 @@
       "last_http_status": 200,
       "verified_parameters": [
         "max_tokens",
-        "stream"
+        "stream",
+        "stream_options.include_usage",
+        "reasoning_effort=medium"
       ],
-      "verification_scope": "short_connectivity_probe_not_capability_test"
+      "verification_scope": "connectivity_and_single_task_smoke_not_capability_test",
+      "runtime_evidence": "docs/qwen-smoke-002.md",
+      "request_parameters": {
+        "reasoning_effort": "medium",
+        "max_tokens": 32768,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        }
+      }
     },
     {
       "display_name": "glm-5.3-flash",

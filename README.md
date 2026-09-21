@@ -59,6 +59,8 @@ python3 scripts/smoke_qwen.py --run-dir runs/qwen-smoke-new --task-id C0_01 --ty
 
 首次实际结果见 [Qwen 冒烟测试 001](docs/qwen-smoke-001.md)：生成成功但出现一个明确的 LaTeX `\\times` prior candidate；唯一一次 repair 返回空 assistant content，因此保持不可判定。
 
+异常修复与复测见 [Qwen 冒烟测试 002](docs/qwen-smoke-002.md)。Qwen 请求现显式使用 `reasoning_effort=medium`、SSE 流式传输和 usage 回传；只有收到非空正文及最终 `finish_reason=stop` 才进入编译。复测的 generation 与 repair 均得到完整响应，repair 后文逐字符不变且修复前缀可编译，验证了修复路径；运行器也会明确拒绝同类空正文响应。完整文件仍有后续独立语法错误，符合串行 C0 的预期。
+
 ## dsh + step-5-preview 审核
 
 使用本机已配置的 dsh step provider；桥接脚本额外需要 PyYAML，见 `requirements-review.txt`。

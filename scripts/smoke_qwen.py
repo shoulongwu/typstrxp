@@ -34,6 +34,38 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def consume_stream(response, raw_path):
+    """Retain the exact SSE body and assemble OpenAI-compatible text deltas."""
+    content_parts, reasoning_parts = [], []
+    finish_reason = reported_model = response_id = usage = None
+    with raw_path.open('xb') as raw_file:
+        for line in response:
+            raw_file.write(line)
+            stripped = line.strip()
+            if not stripped or not stripped.startswith(b'data:'):
+                continue
+            body = stripped[5:].strip()
+            if body == b'[DONE]':
+                continue
+            chunk = json.loads(body)
+            reported_model = chunk.get('model', reported_model)
+            response_id = chunk.get('id', response_id)
+            usage = chunk.get('usage') or usage
+            for choice in chunk.get('choices') or []:
+                delta = choice.get('delta') or {}
+                content = delta.get('content')
+                reasoning = delta.get('reasoning_content')
+                if isinstance(content, str):
+                    content_parts.append(content)
+                if isinstance(reasoning, str):
+                    reasoning_parts.append(reasoning)
+                if choice.get('finish_reason') not in (None, 'null'):
+                    finish_reason = choice['finish_reason']
+    return {'content': ''.join(content_parts), 'reasoning_content': ''.join(reasoning_parts),
+            'finish_reason': finish_reason, 'reported_model': reported_model,
+            'response_id': response_id, 'usage': usage, 'raw': raw_path.read_bytes()}
+
+
 def compile_source(binary, path):
     output = path.with_suffix('.pdf')
     command = [str(binary), 'compile', '--root', str(path.parent), str(path), str(output)]
@@ -51,8 +83,10 @@ def compile_source(binary, path):
 
 
 def call_model(stage, model, base_url, key, prompt):
+    parameters = {'max_tokens': 32768, 'stream': False}
+    parameters.update(model.get('request_parameters') or {})
     payload = {'model': model['model_id'], 'messages': [{'role': 'user', 'content': prompt}],
-               'max_tokens': 32768, 'stream': False}
+               **parameters}
     save_json(stage/'request.json', payload)
     (stage/'prompt.txt').write_text(prompt, encoding='utf-8')
     started = time.monotonic()
@@ -60,28 +94,38 @@ def call_model(stage, model, base_url, key, prompt):
               headers={'Authorization': 'Bearer '+key, 'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(request, timeout=600) as response:
-            raw = response.read()
             http_status = response.status
-        (stage/'response.raw.json').write_bytes(raw)
-        data = json.loads(raw)
-        choice = data['choices'][0]
-        message = choice['message']
-        content = message.get('content')
-        reasoning_content = message.get('reasoning_content')
-        metadata = {'http_status': http_status, 'reported_model': data.get('model'),
-                    'response_id': data.get('id'), 'usage': data.get('usage'),
-                    'finish_reason': choice.get('finish_reason'),
+            if payload['stream']:
+                parsed = consume_stream(response, stage/'response.raw.sse')
+            else:
+                raw = response.read()
+                (stage/'response.raw.json').write_bytes(raw)
+                data = json.loads(raw)
+                choice = data['choices'][0]
+                message = choice['message']
+                parsed = {'content': message.get('content'),
+                          'reasoning_content': message.get('reasoning_content'),
+                          'finish_reason': choice.get('finish_reason'),
+                          'reported_model': data.get('model'), 'response_id': data.get('id'),
+                          'usage': data.get('usage'), 'raw': raw}
+        content = parsed['content']
+        reasoning_content = parsed['reasoning_content']
+        metadata = {'http_status': http_status, 'reported_model': parsed['reported_model'],
+                    'response_id': parsed['response_id'], 'usage': parsed['usage'],
+                    'finish_reason': parsed['finish_reason'], 'transport': ('sse' if payload['stream'] else 'json'),
                     'elapsed_seconds': time.monotonic()-started,
                     'prompt_sha256': digest(prompt.encode()),
-                    'raw_response_sha256': digest(raw),
+                    'raw_response_sha256': digest(parsed['raw']),
                     'assistant_content_chars': len(content) if isinstance(content, str) else None,
                     'reasoning_content_chars': (len(reasoning_content)
                                                 if isinstance(reasoning_content, str) else None),
-                    'temperature': 'provider_default', 'reasoning_mode': 'provider_default'}
+                    'temperature': parameters.get('temperature', 'provider_default'),
+                    'reasoning_mode': parameters.get('reasoning_effort', 'provider_default')}
         if not isinstance(content, str) or not content:
-            metadata['status'] = 'EMPTY_RESPONSE'
+            metadata['status'] = ('INCOMPLETE_REASONING_ONLY' if reasoning_content
+                                  else 'NO_USABLE_ASSISTANT_CONTENT')
             content = None
-        elif choice.get('finish_reason') != 'stop':
+        elif parsed['finish_reason'] != 'stop':
             metadata['status'] = 'TRUNCATED_OR_INCOMPLETE_RESPONSE'
         else:
             metadata['status'] = 'COMPLETE'
