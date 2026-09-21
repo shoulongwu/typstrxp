@@ -21,7 +21,7 @@ python3 scripts/validate_repository.py
 python3 scripts/validate_repository.py --require-ready
 ```
 
-`--require-ready` 目前应失败：正式环境仍需 Typst 0.12.0、完整运行器和协议冻结。
+`--require-ready` 目前应失败：完整运行器和协议冻结尚未完成。已在 `.runtime/typst-0.12.0/` 独立安装官方 Typst 0.12.0，并在试点配置中指定；系统的 `typst` 命令保持原版本。该本地二进制不进入 Git，其他机器需安装相同版本。
 关键词仅粗筛；locality 只验证后文文本未变，不证明语义正确。`block_only` 参数仅保留为明确的对照条件。
 
 ## 分模型连接
@@ -44,6 +44,20 @@ python3 scripts/probe_models.py --output runs/connectivity-new.json
 ```
 
 输出文件必须未存在，避免覆盖旧证据。短回复通过只代表接口可调用，不代表模型质量或全部参数兼容。
+
+## 一次真实 C0 冒烟测试
+
+下面会请求 Qwen 生成一道完整任务，并用固定编译器编译，保存源码、原始响应、诊断、用量及 PDF 页数。运行目录必须未存在：
+
+```bash
+python3 scripts/smoke_qwen.py --run-dir runs/qwen-smoke-new --task-id C0_01 --typst .runtime/typst-0.12.0/typst-x86_64-unknown-linux-musl/typst
+```
+
+若失败，人工确认首个诊断的 target block 与 prefix gate，写出含 `start`、`end`、`prefix_gate: "VERIFIED"` 和 `evidence` 的 JSON，再用同一命令增加 `--repair-boundary 边界文件.json` 进行一次独立修复。偏移为 0-based Unicode code-point 半开区间。脚本检查后文不变，并分别编译修复前缀和完整文件。
+
+这是一题、最多一次修复的开发冒烟，不运行 C1/C2，不给 Strict PPL 结论，也不把编译成功当成语义审核通过。
+
+首次实际结果见 [Qwen 冒烟测试 001](docs/qwen-smoke-001.md)：生成成功但出现一个明确的 LaTeX `\\times` prior candidate；唯一一次 repair 返回空 assistant content，因此保持不可判定。
 
 ## dsh + step-5-preview 审核
 

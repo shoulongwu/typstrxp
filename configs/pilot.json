@@ -2,6 +2,7 @@
   "protocol_version": "0.3.0-draft",
   "status": "not_frozen",
   "typst_version": "0.12.0",
+  "typst_binary": ".runtime/typst-0.12.0/typst-x86_64-unknown-linux-musl/typst",
   "models": [
     {
       "display_name": "qwen3.8-flash",

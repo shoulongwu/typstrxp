@@ -21,7 +21,8 @@ def main():
     errors = validate_dataset()
     blockers = []
     try:
-        proc = subprocess.run(['typst', '--version'], capture_output=True, text=True, timeout=10)
+        binary = str(ROOT / config['typst_binary']) if config.get('typst_binary') else 'typst'
+        proc = subprocess.run([binary, '--version'], capture_output=True, text=True, timeout=10)
         version = proc.stdout.strip()
         match = re.match(r'^typst (\d+\.\d+\.\d+)(?:\s|$)', version)
         if proc.returncode or not match or match[1] != config['typst_version']:
