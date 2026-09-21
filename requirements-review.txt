@@ -1,0 +1,2 @@
+# Only needed for scripts/review_with_dsh.py; dsh itself must already be installed.
+PyYAML>=6.0,<7

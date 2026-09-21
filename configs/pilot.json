@@ -1,0 +1,102 @@
+{
+  "protocol_version": "0.3.0-draft",
+  "status": "not_frozen",
+  "typst_version": "0.12.0",
+  "models": [
+    {
+      "display_name": "qwen3.8-flash",
+      "provider": "qianwenaiapi",
+      "base_url": "https://maas.qianwenaiapi.com/compatible-mode/v1",
+      "model_id": "qwen3.8-flash",
+      "api_key_env": "QWEN_API_KEY",
+      "api_protocol": "chat_completions",
+      "model_availability_verified": true,
+      "credential_label": "qwen",
+      "connectivity_evidence": "runs/model-connectivity-001.json",
+      "last_http_status": 200,
+      "verified_parameters": [
+        "max_tokens",
+        "stream"
+      ],
+      "verification_scope": "short_connectivity_probe_not_capability_test"
+    },
+    {
+      "display_name": "glm-5.3-flash",
+      "provider": "xindu",
+      "base_url": "https://xindu.xyz/v1",
+      "model_id": "glm-5.3-flash",
+      "api_key_env": "GLM_API_KEY",
+      "api_protocol": "chat_completions",
+      "model_availability_verified": true,
+      "credential_label": "glm",
+      "connectivity_evidence": "runs/model-connectivity-001.json",
+      "last_http_status": 200,
+      "verified_parameters": [
+        "max_tokens",
+        "stream"
+      ],
+      "verification_scope": "short_connectivity_probe_not_capability_test"
+    },
+    {
+      "display_name": "deepseek-v4.1-flash",
+      "provider": "qianwenaiapi",
+      "base_url": "https://maas.qianwenaiapi.com/compatible-mode/v1",
+      "model_id": "deepseek-v4.1-flash",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_protocol": "chat_completions",
+      "model_availability_verified": true,
+      "credential_label": "qwen",
+      "connectivity_evidence": "runs/deepseek-alternative-connectivity-001.json",
+      "last_http_status": 200,
+      "inactive_connection": {
+        "provider": "xindu",
+        "base_url": "https://xindu.xyz/v1",
+        "credential_label": "deepseek",
+        "last_http_status": 401,
+        "evidence": "runs/model-connectivity-001.json"
+      },
+      "credential_mapping_reason": "apikey.config explicitly lists deepseek-v4.1-flash under qwen credentials; dedicated Xindu key returned 401; this listed alternative returned 200",
+      "verification_scope": "short_connectivity_probe_not_capability_test",
+      "verified_parameters": [
+        "max_tokens",
+        "stream"
+      ]
+    }
+  ],
+  "monetary_budget_limit": null,
+  "budget_policy": "No monetary cap requested by user; protocol attempt limits still apply",
+  "c0_generation_repeats": null,
+  "c0_max_repair_calls_per_trajectory": 20,
+  "c0_max_attempts_per_event": 3,
+  "c1_runs_per_event": 3,
+  "c1_pass_threshold": 2,
+  "c2_runs_per_event": 3,
+  "compile_timeout_seconds": 30,
+  "transport_retries": 2,
+  "sampling_parameters": null,
+  "freeze_thresholds": null,
+  "provider_verification": {
+    "website": "https://xindu.xyz",
+    "checked_date": "2026-09-21",
+    "models_endpoint": "https://xindu.xyz/v1/models",
+    "unauthenticated_http_status": 401,
+    "authentication": "Bearer token supported according to authentication error",
+    "generation_endpoint_verified": false
+  },
+  "repair_scope": "prefix_through_target",
+  "credentials_file": "apikey.config",
+  "reviewer": {
+    "backend": "dsh",
+    "profile": "headless",
+    "provider": "step",
+    "model_id": "step-5-preview",
+    "role": "independent_adjudicator",
+    "timeout_seconds": 240,
+    "send_feedback_to_subject": false,
+    "automatic_final_labels": false,
+    "smoke_verified": true,
+    "smoke_evidence": "runs/reviewer-step5-smoke/metadata.json",
+    "max_output_tokens": 8192,
+    "batch_policy": "one_error_event_per_independent_session"
+  }
+}

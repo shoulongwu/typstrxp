@@ -1,0 +1,26 @@
+{
+  "fixture": "upstream denominator type repair; target expression unchanged",
+  "compiler": "Typst 0.15.1 (development only)",
+  "compile_before_exit_code": 1,
+  "compile_after_exit_code": 0,
+  "reviewer": {
+    "reviewer_model": "step-5-preview",
+    "reviewer_provider": "step",
+    "dsh_version": "0.1.5-rc.1",
+    "created_at": "2026-09-21T06:45:51.900631+00:00",
+    "prompt_sha256": "2a309972228be310772f8b042fedf220fe15168b34dffbb4e2704ab966e72c60",
+    "reviewer_max_output_tokens": 8192,
+    "advisory_only": true,
+    "automatic_label_applied": false,
+    "exit_code": 0,
+    "structured_review_valid": true
+  },
+  "review": {
+    "review_status": "PASS",
+    "findings": [],
+    "confidence": 0.93,
+    "requires_human_review": false
+  },
+  "formal_experiment_trial": false,
+  "limitations": "Single smoke test; does not validate full protocol or reviewer accuracy."
+}
