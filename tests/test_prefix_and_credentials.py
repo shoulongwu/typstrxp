@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -7,10 +8,10 @@ from unittest.mock import patch
 from ppl_typst.credentials import read_local_config, resolve_connection
 from ppl_typst.locality import check_locality
 from ppl_typst.prompts import ORACLE_REPAIR_INSTRUCTION, REPAIR_INSTRUCTION
+from ppl_typst.repair_contract import validate_repair_packet, validate_repair_response
 from scripts.repair_with_dsh import (compiler_diagnostic_sha256, disable_model_tools,
-                                     feedback_prompt, run_rounds,
-                                     validate_repair_packet, validate_repair_response)
-from scripts.review_with_dsh import validate_packet, validate_review
+                                     feedback_prompt, initial_prompt, run_rounds)
+from scripts.review_with_dsh import run_review_rounds, validate_packet, validate_review
 
 
 class PrefixRepairTests(unittest.TestCase):
@@ -81,6 +82,16 @@ class CredentialTests(unittest.TestCase):
 
 
 class ReviewerTests(unittest.TestCase):
+    class FakeClient:
+        def __init__(self, responses):
+            self.responses = iter(responses)
+            self.prompts = []
+
+        def prompt(self, session_id, prompt, timeout):
+            self.prompts.append(prompt)
+            return {'message_id':str(len(self.prompts)), 'text':next(self.responses),
+                    'turn_end':{'reason':'completed'}, 'tool_calls':[]}
+
     def test_disallow_identity_or_credentials_in_packet(self):
         for field in ['model_id','api_key','c1_result']:
             with self.assertRaises(ValueError):
@@ -111,6 +122,34 @@ class ReviewerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_packet(packet)
 
+    def test_reviewer_corrects_format_in_same_session(self):
+        valid = json.dumps({'review_status':'PASS', 'findings':[], 'confidence':0.9,
+                            'requires_human_review':False})
+        client = self.FakeClient(['Here is the review: {}', valid])
+        with tempfile.TemporaryDirectory() as tmp:
+            records, review, status = run_review_rounds(
+                'UNIQUE_PACKET_CONTENT', Path(tmp), client, 'one-session', 3, 10)
+        self.assertEqual(status, 'REVIEW_COMPLETE')
+        self.assertEqual(review['review_status'], 'PASS')
+        self.assertEqual(len(records), 2)
+        self.assertIn('not valid structured review JSON', client.prompts[1])
+        self.assertNotIn('UNIQUE_PACKET_CONTENT', client.prompts[1])
+
+    def test_reviewer_does_not_retry_empty_exhausted_output(self):
+        client = self.FakeClient([''])
+        original_prompt = client.prompt
+        def exhausted(session_id, prompt, timeout):
+            result = original_prompt(session_id, prompt, timeout)
+            result['turn_end'] = {'reason':{'kind':'max-tokens'}}
+            return result
+        client.prompt = exhausted
+        with tempfile.TemporaryDirectory() as tmp:
+            records, review, status = run_review_rounds(
+                'evidence', Path(tmp), client, 'one-session', 3, 10)
+        self.assertEqual(status, 'OUTPUT_EXHAUSTED')
+        self.assertIsNone(review)
+        self.assertEqual(len(records), 1)
+
 
 class OracleRepairTests(unittest.TestCase):
     class FakeClient:
@@ -140,10 +179,38 @@ class OracleRepairTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_repair_packet({**packet, 'target_diagnostics':['different error']})
 
+    def test_dependency_spans_must_be_in_prior_prefix(self):
+        packet = {'event_id':'e1', 'original_task':'task', 'source_before':'priorBAD',
+                  'target_start':5, 'target_end':8, 'target_block':'BAD',
+                  'selected_diagnostic':'error', 'target_diagnostics':['error'],
+                  'dependency_spans':[{'start':0, 'end':5, 'evidence':'definition'}]}
+        self.assertEqual(validate_repair_packet(packet), packet)
+        with self.assertRaises(ValueError):
+            validate_repair_packet({**packet, 'dependency_spans':[
+                {'start':4, 'end':6, 'evidence':'overlaps target'}]})
+
     def test_oracle_response_has_one_source_field(self):
         self.assertEqual(validate_repair_response({'prefix_after':'fixed'}), 'fixed')
         with self.assertRaises(ValueError):
             validate_repair_response({'prefix_after':'fixed', 'strict_ppl':False})
+
+    def test_sparse_edits_apply_with_frozen_code_point_coordinates(self):
+        source = 'α old middle bad suffix'
+        data = {'edits': [
+            {'start': 2, 'end': 5, 'replacement': 'new'},
+            {'start': 13, 'end': 16, 'replacement': 'good'},
+        ]}
+        self.assertEqual(validate_repair_response(data, 'edits', source, 16),
+                         'α new middle good')
+        with self.assertRaises(ValueError):
+            validate_repair_response({'edits': [
+                {'start':2, 'end':8, 'replacement':'x'},
+                {'start':7, 'end':9, 'replacement':'y'}]}, 'edits', source, 16)
+
+    def test_sparse_prompt_does_not_request_full_prefix(self):
+        prompt = initial_prompt(self.packet(), 'edits')
+        self.assertNotIn('complete corrected editable prefix', prompt)
+        self.assertIn('single key edits', prompt)
 
     def test_failed_prefix_is_repaired_in_same_session(self):
         client = self.FakeClient([
@@ -189,6 +256,20 @@ class OracleRepairTests(unittest.TestCase):
         self.assertEqual(status, 'ORACLE_RUNTIME_FAILURE')
         self.assertIsNone(after)
         self.assertEqual(len(records), 1)
+
+    def test_empty_max_tokens_stops_without_repeating(self):
+        class ExhaustedClient:
+            def prompt(self, session_id, prompt, timeout):
+                return {'message_id':'1', 'text':'',
+                        'turn_end':{'reason':{'kind':'max-tokens'}},
+                        'tool_calls':[], 'assistant_usages':[{'outputTokens':32768}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            records, after, status = run_rounds(
+                self.packet(), Path(tmp), Path('typst'), ExhaustedClient(),
+                'one-session', 4, 10)
+        self.assertEqual(status, 'OUTPUT_EXHAUSTED')
+        self.assertEqual(len(records), 1)
+        self.assertIsNone(after)
 
     def test_any_oracle_tool_call_is_a_protocol_violation(self):
         class ToolClient:

@@ -1,5 +1,7 @@
 # dsh C0 Oracle 冒烟结果
 
+> 历史记录：v0.6 已停用 DSH repair。本文仅用于复现旧适配器的开发过程，不是当前 C0 backend 说明。
+
 日期：2026-09-22。输入事件来自历史 `qwen-smoke-002` 的首个完整 target block，仅用于验证 v0.4 的 C0 oracle 通路，不进入正式统计。
 
 ## 配置演进

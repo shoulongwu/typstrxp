@@ -1,13 +1,13 @@
 # Procedural Prior Lock-in：C0–C2 实验实施协议
 
-协议版本：`0.6.0-draft`，状态：审阅后草案，尚未预注册或冻结。
+协议版本：`0.5.0-draft`，状态：审阅后草案，尚未预注册或冻结。
 原稿完整保存在 [原始实验指导](docs/archive/experiments_guide.original.md)。
-本版保留 C0 → C1 → C2 与 prefix compilation，按用户修订把编辑范围扩大为文档开头至目标 block 结束，允许修复先前定义。C0 repair 改为 provider 无关接口，当前没有启用 backend；DSH 仅保留为错误初筛/审阅器和已禁用的历史 repair 适配器。被测模型只在 C0 generation、C1 和 C2 中调用。旧版本均另存档，不同条件不能直接合并统计。
+本版保留 C0 → C1 → C2 与 prefix compilation，按用户修订把编辑范围扩大为文档开头至目标 block 结束，允许修复先前定义。C0 使用 dsh + step-5-preview 建立并推进错误事件轨迹，并允许同一 oracle attempt 根据 prefix compiler feedback 迭代；被测模型只在 C0 generation、C1 和 C2 中调用。旧版本均另存档，不同条件不能直接合并统计。
 变更依据、限制和待决问题见 [审阅报告](docs/review.md)。
 
 ## 1. 研究问题和结论边界
 
-- C0：被测模型的真实文档 generation 中，是否出现与竞争性 procedure 相符的错误？经冻结的 repair backend 能否在保留语义和后文的前提下修复当前事件并揭示后续错误？
+- C0：被测模型的真实文档 generation 中，是否出现与竞争性 procedure 相符的错误？dsh oracle 能否在保留语义和后文的前提下修复当前事件并揭示后续错误？
 - C1：同一模型配置是否在独立、低压力任务中展示过对应目标能力？
 - C2：在提供原任务、事件首次出现时的源码、真实诊断和前缀编辑边界后，模型是否主动继续执行相同竞争性 procedure？
 
@@ -24,8 +24,8 @@ C1 通过说明有可观察能力证据，并不证明任意复杂上下文下�
 
 每个模型条件记录 provider、精确 model ID / snapshot（如提供方可用）、调用日期、推理配置、temperature、top_p、输出上限、seed 支持情况、工具权限和完整请求。
 参数不支持时记录 `unsupported`，不要伪装成已经设置；未知版本用 `unknown`。
-被测模型承担 C0 generation、C1 atomic task 和 C2 repair replay。C0 trajectory repair 是独立条件，用于建立错误事件库和推进到下一个 compiler-revealed event，不属于被测模型条件，也不进入 PPL repair 分子或分母。v0.6 尚未启用任何 C0 repair backend，因此不能运行完整串行 C0 trajectory；新 backend 必须按 [C0 repair 接口](docs/repair-interface.md) 实现、审阅、冒烟测试并在后续协议冻结。
-主实验中的被测模型调用使用普通独立 API 请求、无浏览器/工具调用和跨请求聊天历史。任何 oracle/reviewer 的模型、版本、提示词、会话和每次输出必须单独记录；不得把外部修复能力归因给被测模型。
+被测模型承担 C0 generation、C1 atomic task 和 C2 repair replay。C0 trajectory repair 固定由 dsh SDK session + step-5-preview oracle 承担，用于建立错误事件库和推进到下一个 compiler-revealed event，不属于被测模型条件，也不进入 PPL repair 分子或分母。
+主实验中的被测模型调用使用普通独立 API 请求、无浏览器/工具调用和跨请求聊天历史。dsh 的模型、版本、提示词、会话和每次输出必须单独记录；不得把 dsh 的修复能力归因给被测模型。
 按用户最新 `apikey.config` 配置并实测：`glm-5.3-flash` 使用星渡 `https://xindu.xyz/v1` 的 glm 凭据；`qwen3.8-flash` 使用 `https://maas.qianwenaiapi.com/compatible-mode/v1` 的 qwen 凭据。
 DeepSeek 原星渡 deepseek 凭据返回 401；用户文件明确注明 qwen 凭据也支持 `deepseek-v4.1-flash`，该备用连接实测 200 后设为当前路由。三个模型独立配置，不做未记录的凭据/服务回退。环境变量可按模型覆盖。
 当前三个模型均有短 Chat Completions 连通证据；真实快照身份及完整实验参数支持仍需进一步核验。服务方/路由属于模型条件，不得把不同路由结果直接混合。用户不设金额预算上限；仍限制每事件/轨迹的调用次数。
@@ -124,19 +124,17 @@ gate 是 `VERIFIED / NON_SELF_CONTAINED / UNKNOWN`，以静态依赖检查或有
 即使 prefix 编译通过，也要确认它仍然测量原语义目标。
 不得临时人工补代码让 prefix 通过。未来若加入 dependency-preserving builder，必须新版本预注册并另报结果。
 
-## 8. C0：被测模型生成与通用 oracle 串行修复
-
-v0.6 只冻结下述接口和验收顺序，没有启用的 repair backend。本节是未来 backend 的约束，不表示当前仓库可以执行正式串行 C0 trajectory。机器可读输入与响应见 `schemas/c0-repair-*.schema.json`。
+## 8. C0：被测模型生成与 dsh oracle 串行修复
 
 1. 每次 generation 为新会话；保存完整输出、截断状态、配置与用量。
 2. 编译完整 source；所有诊断与编译状态留存。
 3. 若失败，选首个主 error、定位 block、建立 event 并检查 gate。
-4. gate 通过后先冻结事件快照、诊断、边界和初步 taxonomy；再通过全新独立会话的已冻结 backend 执行局部 oracle repair。一次 attempt 对应一个会话；会话内最多 4 轮，每轮候选均进行后文不变检查和 prefix 编译。backend 不得访问 packet 外工作区或实验信息；若日志出现未授权工具调用，该 attempt 记为 `PROTOCOL_VIOLATION`。
+4. gate 通过后先冻结事件快照、诊断、边界和初步 taxonomy；再由全新 dsh SDK + step-5-preview 会话执行局部 oracle repair。一次 attempt 对应一个会话；会话内最多 4 轮，每轮候选均进行后文不变检查和 prefix 编译。oracle 的模型工具全部禁用；若日志仍出现任何 tool call，该 attempt 记为 `PROTOCOL_VIOLATION`。
 5. prefix 编译失败时，只把该候选 prefix 的原样编译诊断回传到同一 dsh 会话；不得反馈完整文件诊断、冻结后文、C1/C2 结果或人工正确答案。无效 JSON 与 locality 违规可回传相应协议错误。中间反馈记为 `ORACLE_REPAIR_DIAGNOSTIC`，不是新的 C0 error event。
-   backend 在启用前必须预先选择完整 `prefix_after` 或基于冻结 `source_before` Unicode code-point 坐标的不重叠稀疏 `edits`。响应模式不改变可编辑边界、轮数、编译门或 locality 判定。若一轮用尽输出预算仍没有正文，以 `OUTPUT_EXHAUSTED` 停止该 attempt，不把同一空响应重复为新 repair 轮。
+   较短 editable prefix 使用完整 `prefix_after` 响应；超过 8,192 个 Unicode code point 时默认使用基于冻结 `source_before` 的不重叠稀疏 edits，使用 low reasoning 和 32,768 token 输出上限，避免重复生成大量未修改文本。稀疏模式不改变可编辑边界、轮数、编译门或 locality 判定。若一轮用尽输出预算仍没有正文，以 `OUTPUT_EXHAUSTED` 停止该 attempt，不把同一空响应重复为新 repair 轮。
 6. prefix 编译成功后才拼接冻结后文并编译完整文件，再进行目标和受影响前文的独立语义核验。完整编译中首次揭示的后续错误按新事件流程处理，不能回传给当前 attempt。
 7. 只有 FIXED 才把修复后的完整文件提交为新 Si，并重新编译以揭示下一事件。
-8. 同一候选 prefix 及同一诊断连续出现两轮时以 `NO_PROGRESS` 停止该 attempt；达到 4 轮仍未通过时以 `ROUND_LIMIT` 停止。每轮超时、输出上限和推理强度由 backend 在启用时预注册；超时只是防止请求永久挂起的运行保护，不是修复正确性判据，实际耗时和 token 用量单独记录。
+8. 同一候选 prefix 及同一诊断连续出现两轮时以 `NO_PROGRESS` 停止该 attempt；达到 4 轮仍未通过时以 `ROUND_LIMIT` 停止。每轮默认超时 900 秒；超时是防止请求永久挂起的运行保护，不是修复正确性判据，实际耗时和 token 用量单独记录。
 9. oracle 失败 attempt 保留，不能把无效修复当成新正确基线。试点每事件最多 3 个独立 attempt；每个 attempt 都从同一冻结事件快照发起新会话，不沿用其他 attempt 的失败结果。
 10. 每 trajectory 最多 20 个 oracle attempt（试点暂定）；事件 3 个 attempt 均未 FIXED、定位失败、gate 不通过、基础设施失败或预算达到上限即停止并报告原因。另报 attempt 数、round 数、`NO_PROGRESS` 和 `ROUND_LIMIT`。
 
@@ -264,21 +262,21 @@ PPLScore(event) = that event's strict-PPL runs / that event's valid runs
 另报 V 上的修复成功、语义退化、普通修复失败和 NO_TARGET_EDIT 各比例。
 protocol violation rate 分母为已收到完整响应且可评估 locality 的 C2 输出；基础设施/截断率用计划 run 数并另报未执行数。
 
-C0 错误统计由确定性的编译结果、事件记录和冻结规则计算；DSH 可作为独立 reviewer 提出 target、依赖、taxonomy 和语义判断建议，但不执行 repair，也不能直接写入或改写最终计数。所有建议须保存 evidence spans，并通过 schema、编译证据和人工抽查。
+C0 错误统计由确定性的编译结果、事件记录和冻结规则计算；dsh 可提出 target、依赖、taxonomy 和语义判断建议，但不能直接写入或改写最终计数。所有建议须保存 evidence spans，并通过 schema、编译证据和人工抽查。
 
 C0 RQ1 同时报 initial-generation 层面的 prior candidate incidence：
 含至少一个确认初始 prior candidate 的 generation / 已完成初次编译的 generations。
-串行 PCR 是 oracle-assisted compiler-revealed sequence 的条件指标，不是初始源码所有错误的无偏计数。必须另报 oracle backend/版本、停止率、repair 成功率，以及 `PREEXISTING_HIDDEN / ORACLE_INDUCED / UNCERTAIN` origin；oracle 修改后出现的错误不得自动算作被测模型的自然错误。v0.6 因无启用 backend，不产生新的串行 PCR。
+串行 PCR 是 dsh-oracle-assisted compiler-revealed sequence 的条件指标，不是初始源码所有错误的无偏计数。必须另报 oracle 停止率、oracle repair 成功率，以及 `PREEXISTING_HIDDEN / ORACLE_INDUCED / UNCERTAIN` origin；oracle 修改后出现的错误不得自动算作被测模型的自然错误。
 按任务、模型、procedure、origin 分层，报告停止/截尾率。
 同一任务事件高度相关；正式置信区间优先按 task 聚类重采样，报告 event-macro 与 run-micro 两种汇总；10 题试点只做描述，不作广泛显著性结论。
 报告协议违规/待审缺失的选择偏差，并给排除 run 全部为 PPL / 全部非 PPL 的上下界敏感性分析（清楚注明分母改变）。
 
 ## 13. 人工审核和冻结
 
-试点可由独立 DSH reviewer 会话辅助定位和审核 target block 边界、prefix 依赖、prior 上下文、目标/依赖有效修改、前文及目标语义保持与 occurrence 对齐。错误盘点/分类会话应在看到 oracle repair 结果前冻结；任何 repair backend 不得兼任自身输出的最终语义裁决。
+试点由独立 dsh 会话辅助定位和审核 target block 边界、prefix 依赖、prior 上下文、目标/依赖有效修改、前文及目标语义保持与 occurrence 对齐。错误盘点/分类会话应在看到 oracle repair 结果前冻结；repair 会话不得兼任自身输出的最终语义裁决。
 审核者可见必要完整前缀/依赖信息，隐藏模型身份、C1 结果和全局统计；不能为了盲审隐藏判断所必需的上下文。
-使用 dsh SDK + step-5-preview 的独立会话承担错误事件初筛/结构化建议，不承担 v0.6 repair。审核的同一会话最多允许 3 轮结构格式纠正，后续轮只发 schema 错误而不重发 evidence packet；仍无有效结构时保持 `PENDING_REVIEW`。
-DSH 不替代真实 Typst compiler，不直接修改冻结的事件快照或最终计数。未来 oracle 输出只作为候选 `source_after` 保存，经 locality、编译和语义门控通过后才能成为下一 Si。任何 oracle 或 DSH 审核反馈都不得进入 C1/C2 提示词。
+使用 dsh SDK + step-5-preview 的独立多轮会话分别承担 C0 oracle repair 和错误事件初筛/结构化建议。两类会话必须使用不同运行目录并记录用途，避免同一上下文既修复又裁决。审核的同一会话最多允许 3 轮结构格式纠正，后续轮只发 schema 错误而不重发 evidence packet；仍无有效结构时保持 `PENDING_REVIEW`。
+dsh 不替代真实 Typst compiler，不直接修改冻结的事件快照；oracle 输出只作为候选 `source_after` 保存，经 locality、编译和语义门控通过后才能成为下一 Si。任何 dsh 修复、解释或审核反馈都不得进入 C1/C2 提示词。
 每个审核任务使用独立会话和原任务、必要源码/依赖及真实诊断；inventory 会话不接收 oracle 输出，repair 后审核才接收 source_after 与修改 diff。所有审核隐藏被测模型身份、密钥、C1 结果和总统计。
 记录 reviewer 模型/版本、dsh 版本、提示词摘要、原始返回、置信度和证据。低置信、规则冲突、Strict PPL 阳性和抽样阴性进入人工复核。
 自动建议未通过模式校验与证据核对时保持 PENDING_REVIEW；正式自动裁决须先有人工标注集验证并冻结阈值。
@@ -291,8 +289,8 @@ DSH 不替代真实 Typst compiler，不直接修改冻结的事件快照或最�
 
 ## 14. 仓库实施顺序
 
-1. 已提供：版本化任务、原稿备份、协议审阅、数据校验、前缀范围 locality 检查、分模型凭据加载、provider 无关 repair packet/response schema、历史 DSH 适配器、独立 DSH 审核入口及核心回归测试。
-2. 下一步：0.12.0 compiler harness、结构化诊断、可靠 block parser/人工 fallback、prefix gate；用公式/矩阵/标题/列表/函数/content/code fixtures 验证；实现和冻结新 repair backend 后才启用串行 trajectory。
+1. 已提供：版本化任务、原稿备份、协议审阅、数据校验、前缀范围 locality 检查、分模型凭据加载、同会话多轮 dsh oracle repair、独立审核入口及核心回归测试。
+2. 下一步：0.12.0 compiler harness、结构化诊断、可靠 block parser/人工 fallback、prefix gate；用公式/矩阵/标题/列表/函数/content/code fixtures 验证。
 3. 实现不可变 artifact store、模型 adapter、C0 串行状态机。
 4. 建立候选 detector、origin evidence、题目/atomic rubrics 与审核记录。
 5. 接入独立 C1/C2 与上述 outcome classifier、聚类分析和 pilot 报告。

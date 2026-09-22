@@ -41,6 +41,8 @@ def main():
             blockers.append(f'Model availability and generation protocol unverified: {model["model_id"]}')
     if config['status'] != 'frozen':
         blockers.append('Protocol, sampling, rubrics and acceptance thresholds not frozen')
+    if config.get('c0_oracle', {}).get('status') != 'active_frozen_backend':
+        blockers.append('C0 repair interface has no active frozen backend')
     blockers.append('Full C0-C2 runner and semantic adjudication pipeline not implemented')
     result = {'dataset_valid': not errors, 'task_count': len(TASKS), 'errors': errors,
               'dataset_sha256': hashlib.sha256(DATA_PATH.read_bytes()).hexdigest(),

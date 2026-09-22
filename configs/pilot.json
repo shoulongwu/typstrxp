@@ -1,5 +1,5 @@
 {
-  "protocol_version": "0.5.0-draft",
+  "protocol_version": "0.6.0-draft",
   "status": "not_frozen",
   "typst_version": "0.12.0",
   "typst_binary": ".runtime/typst-0.12.0/typst-x86_64-unknown-linux-musl/typst",
@@ -103,29 +103,43 @@
     "c2_repair_replay"
   ],
   "c0_oracle": {
-    "backend": "dsh",
-    "profile": "sdk",
-    "provider": "step",
-    "model_id": "step-5-preview",
-    "role": "repair_oracle",
-    "reasoning_effort": "low",
-    "timeout_seconds": 240,
-    "timeout_scope": "per_round",
-    "max_output_tokens": 32768,
+    "status": "interface_only_no_active_backend",
+    "backend": null,
+    "enable_for_formal_runs": false,
+    "interface_document": "docs/repair-interface.md",
+    "packet_schema": "schemas/c0-repair-packet.schema.json",
+    "response_schema": "schemas/c0-repair-response.schema.json",
+    "promotion_requires": [
+      "immutable_suffix_locality",
+      "typst_0.12_prefix_compile",
+      "full_compile_observation",
+      "independent_semantic_review"
+    ],
     "independent_session_per_attempt": true,
     "maximum_rounds_per_attempt": 4,
     "compiler_feedback": "editable_prefix_only",
-    "model_tools": "disabled_and_runtime_enforced",
     "full_compile_after_prefix_success_only": true,
+    "response_modes": {
+      "prefix_after": "complete editable prefix",
+      "sparse_edits": "non-overlapping frozen-source code-point coordinates"
+    },
     "no_progress_policy": "stop_after_two_consecutive_identical_prefix_and_diagnostic_pairs",
+    "empty_max_tokens_policy": "stop_attempt_as_OUTPUT_EXHAUSTED_without_repeating",
     "maximum_attempts_per_event": 3,
-    "send_output_to_subject": false,
-    "smoke_status": "iterative_sdk_prefix_repair_verified",
-    "smoke_evidence": "docs/dsh-oracle-smoke.md"
+    "send_output_to_subject": false
+  },
+  "disabled_dsh_repair_adapter": {
+    "status": "disabled_not_part_of_v0.6",
+    "entrypoint": "scripts/repair_with_dsh.py",
+    "provider": "step",
+    "model_id": "step-5-preview",
+    "historical_smoke_evidence": "docs/dsh-oracle-smoke.md",
+    "disablement_evidence": "docs/revision-0.6.md",
+    "may_run_formal_c0": false
   },
   "event_adjudicator": {
     "backend": "dsh",
-    "profile": "headless",
+    "profile": "sdk",
     "provider": "step",
     "model_id": "step-5-preview",
     "role": "error_inventory_and_taxonomy_advisor",
@@ -139,6 +153,7 @@
     "smoke_verified": true,
     "smoke_evidence": "runs/reviewer-step5-smoke/metadata.json",
     "max_output_tokens": 8192,
+    "maximum_format_rounds": 3,
     "batch_policy": "one_error_event_per_independent_session"
   }
 }

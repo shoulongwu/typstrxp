@@ -1,7 +1,8 @@
 """One subject-model generation, optionally followed by one repair-path probe.
 
 Under protocol 0.4 the optional Qwen repair probes future C2 transport and locality;
-C0 trajectory repair belongs to the dsh oracle. This is not a full C0/C1/C2 run.
+C0 trajectory repair belongs to a separately frozen oracle backend. Protocol
+v0.6 currently has no active backend. This is not a full C0/C1/C2 run.
 Raw responses and source are retained; no semantic claims or PPL labels.
 """
 import argparse
