@@ -1,7 +1,7 @@
 # Qwen 3.8 Flash 异常修复与冒烟测试 002
 
 日期：2026-09-21。任务：`C0_01`。模型：`qwen3.8-flash`。服务：Qianwen-compatible API。
-性质：针对 001 的空正文异常做一次独立开发复测；不是正式实验，不运行 C1/C2，不给 Strict PPL 结论。
+性质：针对 001 的空正文异常做一次独立开发复测；不是正式实验，不给 Strict PPL 结论。该记录产生于 v0.3 设计下；在 v0.4 中，Qwen repair 仅作为被测模型/C2 通路验证，不再作为 C0 trajectory repair。
 
 ## 异常与修复
 

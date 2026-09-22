@@ -1,13 +1,13 @@
 # Procedural Prior Lock-in：C0–C2 实验实施协议
 
-协议版本：`0.4.0-draft`，状态：审阅后草案，尚未预注册或冻结。
+协议版本：`0.3.0-draft`，状态：审阅后草案，尚未预注册或冻结。
 原稿完整保存在 [原始实验指导](docs/archive/experiments_guide.original.md)。
-本版保留 C0 → C1 → C2 与 prefix compilation，按用户修订把编辑范围扩大为文档开头至目标 block 结束，允许修复先前定义。C0 使用 dsh + step-5-preview 建立并推进错误事件轨迹；被测模型只在 C0 generation、C1 和 C2 中调用。v0.2 的 block-only 和 v0.3 的同模型 C0 repair 版本均另存档，不同条件不能直接合并统计。
+本版保留 C0 → C1 → C2 与 prefix compilation，按用户修订把编辑范围扩大为文档开头至目标 block 结束，允许修复先前定义。v0.2 的 block-only 版本另存档，两种条件不能直接合并统计。
 变更依据、限制和待决问题见 [审阅报告](docs/review.md)。
 
 ## 1. 研究问题和结论边界
 
-- C0：被测模型的真实文档 generation 中，是否出现与竞争性 procedure 相符的错误？dsh oracle 能否在保留语义和后文的前提下修复当前事件并揭示后续错误？
+- C0：真实文档任务中，是否出现与竞争性 procedure 相符的错误？
 - C1：同一模型配置是否在独立、低压力任务中展示过对应目标能力？
 - C2：在提供原任务、事件首次出现时的源码、真实诊断和前缀编辑边界后，模型是否主动继续执行相同竞争性 procedure？
 
@@ -24,14 +24,14 @@ C1 通过说明有可观察能力证据，并不证明任意复杂上下文下�
 
 每个模型条件记录 provider、精确 model ID / snapshot（如提供方可用）、调用日期、推理配置、temperature、top_p、输出上限、seed 支持情况、工具权限和完整请求。
 参数不支持时记录 `unsupported`，不要伪装成已经设置；未知版本用 `unknown`。
-被测模型承担 C0 generation、C1 atomic task 和 C2 repair replay。C0 trajectory repair 固定由 dsh headless + step-5-preview oracle 承担，用于建立错误事件库和推进到下一个 compiler-revealed event，不属于被测模型条件，也不进入 PPL repair 分子或分母。
-主实验中的被测模型调用使用普通独立 API 请求、无浏览器/工具调用和跨请求聊天历史。dsh 的模型、版本、提示词、会话和每次输出必须单独记录；不得把 dsh 的修复能力归因给被测模型。
+C0 generation、C0 repair、C1、C2 默认同一模型条件；若使用不同 repair 模型，作为独立实验条件披露。
+主实验默认普通独立 API 请求、无浏览器/工具调用和跨请求聊天历史；外部审核 agent 是独立的测量辅助，不属于被测模型条件。
 按用户最新 `apikey.config` 配置并实测：`glm-5.3-flash` 使用星渡 `https://xindu.xyz/v1` 的 glm 凭据；`qwen3.8-flash` 使用 `https://maas.qianwenaiapi.com/compatible-mode/v1` 的 qwen 凭据。
 DeepSeek 原星渡 deepseek 凭据返回 401；用户文件明确注明 qwen 凭据也支持 `deepseek-v4.1-flash`，该备用连接实测 200 后设为当前路由。三个模型独立配置，不做未记录的凭据/服务回退。环境变量可按模型覆盖。
 当前三个模型均有短 Chat Completions 连通证据；真实快照身份及完整实验参数支持仍需进一步核验。服务方/路由属于模型条件，不得把不同路由结果直接混合。用户不设金额预算上限；仍限制每事件/轨迹的调用次数。
 
 在生成前固定任务顺序/随机种子、每题重复数、重试政策、预算上限和停止规则。
-密钥只从环境读取，不写入实验记录。已完成开发冒烟调用；完整付费实验运行尚未实现。
+密钥只从环境读取，不写入实验记录。付费调用尚未实现。
 
 ## 3. 数据集与提示词
 
@@ -68,7 +68,7 @@ target_block range/text/type, target occurrence ranges, semantic_target
 repair_scope=prefix_through_target, editable_start=0, editable_end=target_block_end
 dependency_spans_before, target_locator_after, changed_spans, upstream_semantics_check
 prefix gate status/evidence, origin status/evidence
-C0 oracle repair before/after, oracle identity/session, raw prefix, compile artifacts, outside-block diff
+repair attempt before/after, raw prefix, compile artifacts, outside-block diff
 C1 run artifacts, C2 run artifacts, classifications, adjudications
 ```
 
@@ -124,40 +124,20 @@ gate 是 `VERIFIED / NON_SELF_CONTAINED / UNKNOWN`，以静态依赖检查或有
 即使 prefix 编译通过，也要确认它仍然测量原语义目标。
 不得临时人工补代码让 prefix 通过。未来若加入 dependency-preserving builder，必须新版本预注册并另报结果。
 
-## 8. C0：被测模型生成与 dsh oracle 串行修复
+## 8. C0：生成和串行修复
 
 1. 每次 generation 为新会话；保存完整输出、截断状态、配置与用量。
 2. 编译完整 source；所有诊断与编译状态留存。
 3. 若失败，选首个主 error、定位 block、建立 event 并检查 gate。
-4. gate 通过后先冻结事件快照、诊断、边界和初步 taxonomy；再由全新 dsh headless + step-5-preview 会话执行局部 oracle repair，进行后文不变检查、prefix 编译、目标和受影响前文的语义核验。
+4. gate 通过后调用局部 repair，进行后文不变检查、prefix 编译、目标和受影响前文的语义核验。
 5. 只有 FIXED 才把修复后的完整文件提交为新 Si，并重新编译以揭示下一事件。
-6. oracle 失败 attempt 保留，不能把无效修复当成新正确基线。试点每事件最多 3 次，从同一事件快照发起新的 dsh 会话，不串联失败结果。
-7. 每 trajectory 最多 20 次 oracle repair 调用（试点暂定）；事件 3 次均未 FIXED、定位失败、gate 不通过、基础设施失败或预算达到上限即停止并报告原因。
+6. 失败 attempt 保留，不能把无效修复当成新正确基线。试点每事件最多 3 次，从同一事件快照发起新请求，不串联失败结果。
+7. 每 trajectory 最多 20 次 repair 调用（试点暂定）；事件 3 次均未 FIXED、定位失败、gate 不通过、基础设施失败或预算达到上限即停止并报告原因。
 
 完整文件编译通过后另行检查文档质量，不用质量退回修改来悄悄改变原 C0 轨迹。
 被停止轨迹的下游错误尚未观察到，属于截尾；不能当作“没有其他错误”。
 
-统一 repair 核心任务（C0 oracle 与 C2 被测模型共用，调用角色、输出契约和元数据分开）：
-
-> The following source was produced for the original Typst task.
-> The compiler reports an error in the specified target block; its cause may lie in earlier code.
-> Fix the error by modifying the target block and/or any necessary source before it.
-> You may edit only the prefix from the beginning of the document through the end of the target block.
-> Do not change any source after the target block. Preserve the intended semantics and formatting
-> of the target and all preceding content. Keep changes focused on the reported error and its dependencies.
-
-C0 oracle 输出契约：
-
-> The following source was produced for the original Typst task.
-> The compiler reports an error in the specified target block; its cause may lie in earlier code.
-> Fix the error by modifying the target block and/or any necessary source before it.
-> You may edit only the prefix from the beginning of the document through the end of the target block.
-> Do not change any source after the target block. Preserve the intended semantics and formatting
-> of the target and all preceding content. Keep changes focused on the reported error and its dependencies.
-> Return only the complete corrected editable prefix from document start through the repaired target,
-> in the requested response field, without code fences or commentary.
-
-C2 被测模型输出契约：
+统一 repair 指令（C0 与 C2 共用，减少措辞混杂）：
 
 > The following source was produced for the original Typst task.
 > The compiler reports an error in the specified target block; its cause may lie in earlier code.
@@ -167,11 +147,7 @@ C2 被测模型输出契约：
 > of the target and all preceding content. Keep changes focused on the reported error and its dependencies.
 > Return the complete corrected Typst source only, without code fences or commentary.
 
-C0 返回 prefix 是 oracle 的传输优化：运行器只能把它与冻结 Q 拼接，仍对拼接结果执行 locality、prefix compile 和完整编译。C2 必须返回完整源码，因为是否修改 Q 本身就是被测 outcome 的一部分。
-
-依次附原任务、完整 source、target block 的 offset/行范围和单独文本、editable prefix `[0,end)` 范围、一个所选真实 primary diagnostic，以及诊断 span 同样落在该 target block 内的共位 diagnostics。target block 外的后续 diagnostics 不得交给当前 repair。
-
-事件统计以 selected primary diagnostic 为索引；同一次编译产生的全部 raw diagnostics 另存。共位 diagnostics 是使完整 target/prefix 可验证所需的 repair context，不额外计作独立 event；若需独立研究其中某项，必须从冻结的原始快照建立明确关联的 secondary event，不能重复计数。
+依次附原任务、完整 source、target block 的 offset/行范围和单独文本、editable prefix `[0,end)` 范围、所选真实 diagnostic。
 标记位于提示词元数据，不能插进 source 改变诊断行号。
 不提示 prior 来源，不提供正确语法或映射。
 
@@ -192,10 +168,10 @@ is_prior_candidate: true / false / null
 Typst 与 Markdown 共享部分表面形式，不能仅凭符号判定来源。
 能够编译却渲染错误的 prior-like 行为另建 semantic-error 探索集，不混入 compiler-triggered 主链。
 
-origin：初始事件 `INITIAL_SOURCE`；后续事件 `PREEXISTING_HIDDEN / ORACLE_INDUCED / UNCERTAIN`。
+origin：初始事件 `INITIAL_SOURCE`；后续事件 `PREEXISTING_HIDDEN / REPAIR_INDUCED / UNCERTAIN`。
 错误在未改的 suffix 中，也可能由前面 definition/set/show 改动引起；错误在改过的 block 中也可能原已存在。
 位置只记 `location_relation`，不得自动推断因果。只有有反事实/依赖证据时才给确定 origin，否则 UNCERTAIN。
-原始生成自然错误与 oracle-induced candidates 分层报告，后者不混入“自然生成错误”主结论。
+原始生成自然错误与 repair-induced candidates 分层报告，后者不混入“自然生成错误”主结论。
 
 ## 10. C1：Atomic Capability
 
@@ -209,8 +185,8 @@ origin：初始事件 `INITIAL_SOURCE`；后续事件 `PREEXISTING_HIDDEN / ORAC
 
 ## 11. C2：三次独立回放
 
-每个合格 event 固定 3 次被测模型 repair 机会，每次从同一任务、首次事件 source、诊断、原边界、被测模型配置和相同提示词开始。
-不将前一 run、C0 oracle repair、C1 结果或审核结论传给下一 run。
+每个合格 event 固定 3 次模型生成机会，每次从同一任务、首次事件 source、诊断、原边界、模型配置和相同提示词开始。
+不将前一 run、C0 repair、C1 结果或审核结论传给下一 run。
 协议违规也消耗一次机会，不补跑直到凑满 3 个“好结果”。
 传输失败可按预先固定政策重试；记录每次 API attempt，已收到模型输出的失败不能假装为传输重试。
 输出上限截断记录 `TRUNCATED_RESPONSE`，保留原文，不把截断输出直接当作能力失败或 PPL。
@@ -256,22 +232,20 @@ PPLScore(event) = that event's strict-PPL runs / that event's valid runs
 另报 V 上的修复成功、语义退化、普通修复失败和 NO_TARGET_EDIT 各比例。
 protocol violation rate 分母为已收到完整响应且可评估 locality 的 C2 输出；基础设施/截断率用计划 run 数并另报未执行数。
 
-C0 错误统计由确定性的编译结果、事件记录和冻结规则计算；dsh 可提出 target、依赖、taxonomy 和语义判断建议，但不能直接写入或改写最终计数。所有建议须保存 evidence spans，并通过 schema、编译证据和人工抽查。
-
 C0 RQ1 同时报 initial-generation 层面的 prior candidate incidence：
 含至少一个确认初始 prior candidate 的 generation / 已完成初次编译的 generations。
-串行 PCR 是 dsh-oracle-assisted compiler-revealed sequence 的条件指标，不是初始源码所有错误的无偏计数。必须另报 oracle 停止率、oracle repair 成功率，以及 `PREEXISTING_HIDDEN / ORACLE_INDUCED / UNCERTAIN` origin；oracle 修改后出现的错误不得自动算作被测模型的自然错误。
+串行 PCR 是 compiler-revealed sequence 的条件指标，不是初始源码所有错误的无偏计数。
 按任务、模型、procedure、origin 分层，报告停止/截尾率。
 同一任务事件高度相关；正式置信区间优先按 task 聚类重采样，报告 event-macro 与 run-micro 两种汇总；10 题试点只做描述，不作广泛显著性结论。
 报告协议违规/待审缺失的选择偏差，并给排除 run 全部为 PPL / 全部非 PPL 的上下界敏感性分析（清楚注明分母改变）。
 
 ## 13. 人工审核和冻结
 
-试点由独立 dsh 会话辅助定位和审核 target block 边界、prefix 依赖、prior 上下文、目标/依赖有效修改、前文及目标语义保持与 occurrence 对齐。错误盘点/分类会话应在看到 oracle repair 结果前冻结；repair 会话不得兼任自身输出的最终语义裁决。
+试点审核 target block 边界、prefix 依赖、prior 上下文、目标/依赖有效修改、前文及目标语义保持与 occurrence 对齐。
 审核者可见必要完整前缀/依赖信息，隐藏模型身份、C1 结果和全局统计；不能为了盲审隐藏判断所必需的上下文。
-使用 dsh headless + step-5-preview 的独立会话分别承担 C0 oracle repair 与错误事件初筛/结构化建议。两类会话必须使用不同运行目录并记录用途，避免同一上下文既修复又裁决。
-dsh 不替代真实 Typst compiler，不直接修改冻结的事件快照；oracle 输出只作为候选 `source_after` 保存，经 locality、编译和语义门控通过后才能成为下一 Si。任何 dsh 修复、解释或审核反馈都不得进入 C1/C2 提示词。
-每个审核任务使用独立会话和原任务、必要源码/依赖及真实诊断；inventory 会话不接收 oracle 输出，repair 后审核才接收 source_after 与修改 diff。所有审核隐藏被测模型身份、密钥、C1 结果和总统计。
+初筛可调用外部 dsh headless + step-5-preview 独立审核 agent，输出带 evidence spans 的结构化建议，以提高效率。
+审核 agent 不替代真实 Typst compiler，不向被测模型发送提示或修复方案，不修改实验原始快照；C1/C2 输入不得包含审核反馈。
+每个审核任务独立会话，使用原任务、必要源码/依赖、真实诊断与修改 diff；隐藏被测模型身份、密钥、C1 结果和总统计。
 记录 reviewer 模型/版本、dsh 版本、提示词摘要、原始返回、置信度和证据。低置信、规则冲突、Strict PPL 阳性和抽样阴性进入人工复核。
 自动建议未通过模式校验与证据核对时保持 PENDING_REVIEW；正式自动裁决须先有人工标注集验证并冻结阈值。
 争议例双人独立标注后裁决，保存一致率和改判记录。
@@ -283,7 +257,7 @@ dsh 不替代真实 Typst compiler，不直接修改冻结的事件快照；orac
 
 ## 14. 仓库实施顺序
 
-1. 已提供：版本化任务、原稿备份、协议审阅、数据校验、前缀范围 locality 检查、分模型凭据加载、dsh oracle repair/审核入口及核心回归测试。
+1. 已提供：版本化任务、原稿备份、协议审阅、数据校验、前缀范围 locality 检查、分模型凭据加载、dsh 审核调用入口及核心回归测试。
 2. 下一步：0.12.0 compiler harness、结构化诊断、可靠 block parser/人工 fallback、prefix gate；用公式/矩阵/标题/列表/函数/content/code fixtures 验证。
 3. 实现不可变 artifact store、模型 adapter、C0 串行状态机。
 4. 建立候选 detector、origin evidence、题目/atomic rubrics 与审核记录。

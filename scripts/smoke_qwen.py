@@ -1,7 +1,8 @@
-"""One real C0 generation, optionally followed by one explicitly located repair.
+"""One subject-model generation, optionally followed by one repair-path probe.
 
-This is a development smoke run, not the full C0/C1/C2 experiment. Raw responses
-and source are retained; no Markdown stripping, semantic claims, or PPL labels.
+Under protocol 0.4 the optional Qwen repair probes future C2 transport and locality;
+C0 trajectory repair belongs to the dsh oracle. This is not a full C0/C1/C2 run.
+Raw responses and source are retained; no semantic claims or PPL labels.
 """
 import argparse
 from datetime import datetime, timezone
@@ -185,7 +186,8 @@ def main():
         stage = run/'generation'
         stage.mkdir()
         save_json(run/'manifest.json', {
-            'run_kind': 'single_task_smoke', 'formal_experiment': False, 'task_id': args.task_id,
+            'run_kind': 'subject_generation_repair_path_smoke', 'formal_experiment': False,
+            'task_id': args.task_id,
             'model_id': model['model_id'], 'provider': model['provider'], 'base_url': base,
             'created_at': datetime.now(timezone.utc).isoformat(), 'typst_version': version,
             'typst_binary_sha256': digest(binary.read_bytes()),

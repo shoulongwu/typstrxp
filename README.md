@@ -5,11 +5,11 @@ C0 真实任务 → C1 原子能力验证 → C2 独立前缀范围修复。
 
 ## 入口
 
-- [实施协议](experiments_guide.md)：`0.3.0-draft`。目标 block 用于定位，允许修改从文件开头至目标 block 结束的完整前缀，后文保持不变。
+- [实施协议](experiments_guide.md)：`0.4.0-draft`。C0 由被测模型生成、dsh oracle 修复并推进错误轨迹；C1/C2 才调用同一被测模型做能力与 PPL 验证。目标 block 用于定位，允许修改从文件开头至目标 block 结束的完整前缀，后文保持不变。
 - [原始审阅报告](docs/review.md) / [本轮修订记录](docs/revision-0.3.md)。
 - [C0 数据集](data/c0_tasks.json)：10 题、5 类，统一 2–5 页。
-- [试点配置](configs/pilot.json)：模型、路由、凭据映射及 reviewer 配置。
-- [原稿备份](docs/archive/experiments_guide.original.md) / [v0.2 协议](docs/archive/experiments_guide.v0.2.md)；旧 block-only 与新 prefix 条件分开统计。
+- [试点配置](configs/pilot.json)：模型、路由、凭据映射、C0 oracle 及审核配置。
+- [原稿备份](docs/archive/experiments_guide.original.md) / [v0.2 协议](docs/archive/experiments_guide.v0.2.md) / [v0.3 协议](docs/archive/experiments_guide.v0.3.md)；旧 block-only、同模型 C0 repair 和 dsh-oracle 条件分开统计。
 
 ## 离线检查
 
@@ -45,9 +45,9 @@ python3 scripts/probe_models.py --output runs/connectivity-new.json
 
 输出文件必须未存在，避免覆盖旧证据。短回复通过只代表接口可调用，不代表模型质量或全部参数兼容。
 
-## 一次真实 C0 冒烟测试
+## 被测模型 generation / repair 通路冒烟测试
 
-下面会请求 Qwen 生成一道完整任务，并用固定编译器编译，保存源码、原始响应、诊断、用量及 PDF 页数。运行目录必须未存在：
+下面会请求 Qwen 生成一道完整任务，并用固定编译器编译，保存源码、原始响应、诊断、用量及 PDF 页数。若增加 repair boundary，调用的是被测模型 repair 通路，用于验证未来 C2 基础设施，不作为 v0.4 的 C0 oracle repair。运行目录必须未存在：
 
 ```bash
 python3 scripts/smoke_qwen.py --run-dir runs/qwen-smoke-new --task-id C0_01 --typst .runtime/typst-0.12.0/typst-x86_64-unknown-linux-musl/typst
@@ -55,22 +55,31 @@ python3 scripts/smoke_qwen.py --run-dir runs/qwen-smoke-new --task-id C0_01 --ty
 
 若失败，人工确认首个诊断的 target block 与 prefix gate，写出含 `start`、`end`、`prefix_gate: "VERIFIED"` 和 `evidence` 的 JSON，再用同一命令增加 `--repair-boundary 边界文件.json` 进行一次独立修复。偏移为 0-based Unicode code-point 半开区间。脚本检查后文不变，并分别编译修复前缀和完整文件。
 
-这是一题、最多一次修复的开发冒烟，不运行 C1/C2，不给 Strict PPL 结论，也不把编译成功当成语义审核通过。
+这是一题、最多一次被测模型修复的开发冒烟，不构成完整 C0/C1/C2，不给 Strict PPL 结论，也不把编译成功当成语义审核通过。
 
 首次实际结果见 [Qwen 冒烟测试 001](docs/qwen-smoke-001.md)：生成成功但出现一个明确的 LaTeX `\\times` prior candidate；唯一一次 repair 返回空 assistant content，因此保持不可判定。
 
-异常修复与复测见 [Qwen 冒烟测试 002](docs/qwen-smoke-002.md)。Qwen 请求现显式使用 `reasoning_effort=medium`、SSE 流式传输和 usage 回传；只有收到非空正文及最终 `finish_reason=stop` 才进入编译。复测的 generation 与 repair 均得到完整响应，repair 后文逐字符不变且修复前缀可编译，验证了修复路径；运行器也会明确拒绝同类空正文响应。完整文件仍有后续独立语法错误，符合串行 C0 的预期。
+异常修复与复测见 [Qwen 冒烟测试 002](docs/qwen-smoke-002.md)。Qwen 请求现显式使用 `reasoning_effort=medium`、SSE 流式传输和 usage 回传；只有收到非空正文及最终 `finish_reason=stop` 才进入编译。复测的 generation 与 repair 均得到完整响应，repair 后文逐字符不变且修复前缀可编译，验证了被测模型/C2 通路；运行器也会明确拒绝同类空正文响应。该历史 Qwen repair 不属于 v0.4 的 C0 oracle 数据。
 
-## dsh + step-5-preview 审核
+## dsh + step-5-preview：C0 oracle 与事件审核
 
-使用本机已配置的 dsh step provider；桥接脚本额外需要 PyYAML，见 `requirements-review.txt`。
-每次创建独立 headless 会话、独立运行目录，并显式固定 step-5-preview，不修改用户全局 dsh 配置。
+使用本机已配置的 dsh step provider；桥接脚本额外需要 PyYAML，见 `requirements-review.txt`。C0 repair oracle 与错误盘点/审核分别使用独立 headless 会话和独立运行目录，并显式固定 step-5-preview，不修改用户全局 dsh 配置。被测模型的 repair 只在 C2 执行，dsh 输出不得传入 C1/C2。
+
+C0 oracle repair 接收已冻结的事件 packet，并对候选输出执行后文不变检查和真实编译：
+
+```bash
+python3 scripts/repair_with_dsh.py --packet runs/event-frozen.json --output-dir runs/oracle-repair-new --typst .runtime/typst-0.12.0/typst-x86_64-unknown-linux-musl/typst
+```
+
+packet 必须包含 `event_id`、`original_task`、`source_before`、`target_start`、`target_end`、`target_block`、`selected_diagnostic` 和 `target_diagnostics`。target 文本必须与冻结源码坐标完全一致；`target_diagnostics` 只能包含诊断 span 落在该 target block 内的错误，并必须包含 selected primary error。oracle 只返回修复后的 editable prefix，运行器与冻结后文拼接。prefix 编译失败记为 `ORACLE_REPAIR_FAIL`；编译通过的候选仍保持 `PENDING_REVIEW`，只有独立语义审核通过才能成为下一份 C0 快照。
+
+真实通路验证见 [dsh C0 Oracle 冒烟结果](docs/dsh-oracle-smoke.md)：Step-5 已能以 low reasoning 返回结构化前缀，但在该复合 target 上的两个独立候选均未通过 prefix compile，因此不能晋升为下一快照。这也验证了 compiler gate 会拒绝 oracle 的错误判断。
 
 ```bash
 python3 scripts/review_with_dsh.py --packet runs/event-evidence.json --output-dir runs/review-new
 ```
 
-packet 使用 `review_type=event_review`，必填 original_task、source_before、source_after、target_block、diagnostics、compile_results；可附 semantic_target、dependency_spans、diff。
+错误盘点使用 `review_type=inventory_review`，只能查看修复前的 original_task、source_before、target_block、diagnostics、compile_results；不得包含 oracle 输出或 diff。修复后审核使用 `review_type=event_review`，额外要求 source_after；可附 semantic_target、dependency_spans、diff。
 协议审阅使用 `review_type=protocol_review` 和 protocol，可附 dataset、implementation。
 不得附被测模型身份、密钥或 C1 结果；脚本限制顶层字段。source 字符串内部仍需由生成 packet 的流程检查，字段白名单不等于全内容脱敏。
 结果含原始输出、提示词摘要、dsh 版本、结构化建议和运行状态。超时/非 JSON/缺证据保持 PENDING_REVIEW；不会自动改实验标签，也不向被测模型反馈。

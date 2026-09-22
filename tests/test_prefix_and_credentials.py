@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 from ppl_typst.credentials import read_local_config, resolve_connection
 from ppl_typst.locality import check_locality
-from ppl_typst.prompts import REPAIR_INSTRUCTION
+from ppl_typst.prompts import ORACLE_REPAIR_INSTRUCTION, REPAIR_INSTRUCTION
+from scripts.repair_with_dsh import validate_repair_packet, validate_repair_response
 from scripts.review_with_dsh import validate_packet, validate_review
 
 
@@ -49,6 +50,8 @@ class PrefixRepairTests(unittest.TestCase):
         guide = Path(__file__).resolve().parents[1] / 'experiments_guide.md'
         text = guide.read_text()
         for line in REPAIR_INSTRUCTION.splitlines():
+            self.assertIn('> '+line, text)
+        for line in ORACLE_REPAIR_INSTRUCTION.splitlines():
             self.assertIn('> '+line, text)
 
 
@@ -98,6 +101,30 @@ class ReviewerTests(unittest.TestCase):
     def test_advisory_schema(self):
         data={'review_status':'PENDING_REVIEW','confidence':0.2,'requires_human_review':True,'findings':[]}
         self.assertEqual(validate_review(data),data)
+
+    def test_inventory_is_blind_to_oracle_output(self):
+        packet = {'review_type':'inventory_review', 'original_task':'task',
+                  'source_before':'bad', 'source_after':'fixed', 'target_block':'bad',
+                  'diagnostics':'error', 'compile_results':{}}
+        with self.assertRaises(ValueError):
+            validate_packet(packet)
+
+
+class OracleRepairTests(unittest.TestCase):
+    def test_frozen_target_coordinates_must_match(self):
+        packet = {'event_id':'e1', 'original_task':'task', 'source_before':'PbadQ',
+                  'target_start':1, 'target_end':4, 'target_block':'bad',
+                  'selected_diagnostic':'error', 'target_diagnostics':['error']}
+        self.assertEqual(validate_repair_packet(packet), packet)
+        with self.assertRaises(ValueError):
+            validate_repair_packet({**packet, 'target_block':'other'})
+        with self.assertRaises(ValueError):
+            validate_repair_packet({**packet, 'target_diagnostics':['different error']})
+
+    def test_oracle_response_has_one_source_field(self):
+        self.assertEqual(validate_repair_response({'prefix_after':'fixed'}), 'fixed')
+        with self.assertRaises(ValueError):
+            validate_repair_response({'prefix_after':'fixed', 'strict_ppl':False})
 
 
 if __name__ == '__main__':
