@@ -129,6 +129,8 @@
     "provider": "step",
     "model_id": "step-5-preview",
     "role": "error_inventory_and_taxonomy_advisor",
+    "reasoning_effort": "low",
+    "model_tools": "disabled",
     "timeout_seconds": 240,
     "send_feedback_to_subject": false,
     "blind_to_oracle_repair_output_until_event_record_frozen": true,

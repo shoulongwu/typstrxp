@@ -22,20 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from ppl_typst.locality import check_locality
 from ppl_typst.prompts import ORACLE_REPAIR_INSTRUCTION
-from scripts.review_with_dsh import prepare_home
+from scripts.review_with_dsh import NO_TOOL_ROWS, disable_model_tools, prepare_home
 
 ALLOWED_FIELDS = {
     'event_id', 'original_task', 'source_before', 'target_start', 'target_end',
     'target_block', 'selected_diagnostic', 'target_diagnostics', 'dependency_spans',
 }
-
-NO_TOOL_ROWS = (
-    'user-questions', 'tool-bash', 'tool-pwsh', 'tool-jobs', 'tool-fs',
-    'tool-fs-search', 'tool-skill', 'tool-subagent-control',
-    'tool-subagent-list-agents', 'tool-subagent', 'tool-subagent-fork',
-    'tool-workflow', 'tool-todo', 'tool-goal', 'tool-ralph', 'tool-web',
-)
-
 
 def sha256_text(value):
     return hashlib.sha256(value.encode()).hexdigest()
@@ -85,13 +77,6 @@ def parse_repair_response(text):
 
 def save_json(path, data):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-
-
-def disable_model_tools(home):
-    """Apply a highest-precedence DSH patch that removes model-facing tools."""
-    rows = ''.join(f'- id: {row}\n  disabled: true\n' for row in NO_TOOL_ROWS)
-    (home/'cordis.patch.yml').write_text(
-        '# C0 repair oracle: the harness owns compilation and all external actions.\n' + rows)
 
 
 def compile_source(binary, root, source, output):

@@ -9,6 +9,7 @@ C0 真实任务 → C1 原子能力验证 → C2 独立前缀范围修复。
 - [原始审阅报告](docs/review.md) / [本轮修订记录](docs/revision-0.5.md)。
 - [C0 数据集](data/c0_tasks.json)：10 题、5 类，统一 2–5 页。
 - [试点配置](configs/pilot.json)：模型、路由、凭据映射、C0 oracle 及审核配置。
+- [单题试点 001](docs/pilot-one-task-001.md)：Qwen generation、首事件无工具 DSH repair、prefix gate 与独立审核。
 - [原稿备份](docs/archive/experiments_guide.original.md) / [v0.2 协议](docs/archive/experiments_guide.v0.2.md) / [v0.3 协议](docs/archive/experiments_guide.v0.3.md)；旧 block-only、同模型 C0 repair 和 dsh-oracle 条件分开统计。
 
 ## 离线检查
@@ -79,7 +80,7 @@ packet 必须包含 `event_id`、`original_task`、`source_before`、`target_sta
 python3 scripts/review_with_dsh.py --packet runs/event-evidence.json --output-dir runs/review-new
 ```
 
-错误盘点使用 `review_type=inventory_review`，只能查看修复前的 original_task、source_before、target_block、diagnostics、compile_results；不得包含 oracle 输出或 diff。修复后审核使用 `review_type=event_review`，额外要求 source_after；可附 semantic_target、dependency_spans、diff。
+错误盘点使用 `review_type=inventory_review`，只能查看修复前的 original_task、source_before、target_block、diagnostics、compile_results；不得包含 oracle 输出或 diff。修复后审核使用 `review_type=event_review`，额外要求 source_after；可附 semantic_target、dependency_spans、diff。审核器固定 low reasoning 并禁用模型工具，避免长推理耗尽输出或自行获取实验包之外的信息。
 协议审阅使用 `review_type=protocol_review` 和 protocol，可附 dataset、implementation。
 不得附被测模型身份、密钥或 C1 结果；脚本限制顶层字段。source 字符串内部仍需由生成 packet 的流程检查，字段白名单不等于全内容脱敏。
 结果含原始输出、提示词摘要、dsh 版本、结构化建议和运行状态。超时/非 JSON/缺证据保持 PENDING_REVIEW；不会自动改实验标签，也不向被测模型反馈。

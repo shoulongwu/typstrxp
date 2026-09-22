@@ -32,6 +32,13 @@ requires_human_review (boolean). Include concrete evidence; do not claim to have
 No Markdown fences. This is advisory review, never an authoritative Strict PPL label.
 Evidence packet follows:\n'''
 
+NO_TOOL_ROWS = (
+    'user-questions', 'tool-bash', 'tool-pwsh', 'tool-jobs', 'tool-fs',
+    'tool-fs-search', 'tool-skill', 'tool-subagent-control',
+    'tool-subagent-list-agents', 'tool-subagent', 'tool-subagent-fork',
+    'tool-workflow', 'tool-todo', 'tool-goal', 'tool-ralph', 'tool-web',
+)
+
 
 def validate_packet(packet):
     if not isinstance(packet, dict) or set(packet) - ALLOWED_FIELDS:
@@ -100,6 +107,12 @@ def prepare_home(home, source_home, max_tokens=8192, reasoning_effort=None):
     (home/'.credentials.yaml').chmod(0o600)
 
 
+def disable_model_tools(home):
+    rows = ''.join(f'- id: {row}\n  disabled: true\n' for row in NO_TOOL_ROWS)
+    (home/'cordis.patch.yml').write_text(
+        '# Experiment agents use only the evidence supplied by the runner.\n' + rows)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--packet', type=Path, required=True)
@@ -112,7 +125,8 @@ def main():
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
     home = output/'runtime'
-    prepare_home(home, args.dsh_source_home)
+    prepare_home(home, args.dsh_source_home, reasoning_effort='low')
+    disable_model_tools(home)
     prompt = INSTRUCTION + json.dumps(packet, ensure_ascii=False)
     (output/'input.json').write_text(json.dumps(packet, ensure_ascii=False, indent=2)+'\n')
     (output/'prompt.txt').write_text(prompt)
@@ -124,6 +138,7 @@ def main():
     metadata = {'reviewer_model':'step-5-preview','reviewer_provider':'step','dsh_version':version,
                 'created_at':datetime.now(timezone.utc).isoformat(),
                 'prompt_sha256':hashlib.sha256(prompt.encode()).hexdigest(),
+                'reasoning_effort':'low', 'model_tools':'disabled',
                 'reviewer_max_output_tokens':8192, 'advisory_only':True, 'automatic_label_applied':False}
     with (output/'stdout.txt').open('w') as stdout, (output/'stderr.txt').open('w') as stderr:
         process = subprocess.Popen(['dsh','--profile','headless',prompt], cwd=work, env=env,
