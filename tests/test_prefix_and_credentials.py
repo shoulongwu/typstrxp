@@ -7,7 +7,9 @@ from unittest.mock import patch
 from ppl_typst.credentials import read_local_config, resolve_connection
 from ppl_typst.locality import check_locality
 from ppl_typst.prompts import ORACLE_REPAIR_INSTRUCTION, REPAIR_INSTRUCTION
-from scripts.repair_with_dsh import validate_repair_packet, validate_repair_response
+from scripts.repair_with_dsh import (compiler_diagnostic_sha256, disable_model_tools,
+                                     feedback_prompt, run_rounds,
+                                     validate_repair_packet, validate_repair_response)
 from scripts.review_with_dsh import validate_packet, validate_review
 
 
@@ -111,6 +113,23 @@ class ReviewerTests(unittest.TestCase):
 
 
 class OracleRepairTests(unittest.TestCase):
+    class FakeClient:
+        def __init__(self, responses):
+            self.responses = iter(responses)
+            self.prompts = []
+
+        def prompt(self, session_id, prompt, timeout):
+            self.prompts.append(prompt)
+            return {'message_id': str(len(self.prompts)), 'text': next(self.responses),
+                    'turn_end': {'reason': 'completed'}, 'tool_calls': []}
+
+    @staticmethod
+    def packet():
+        return {'event_id':'e1', 'original_task':'task', 'source_before':'PbadSECRET_SUFFIX',
+                'target_start':1, 'target_end':4, 'target_block':'bad',
+                'selected_diagnostic':'original error',
+                'target_diagnostics':['original error']}
+
     def test_frozen_target_coordinates_must_match(self):
         packet = {'event_id':'e1', 'original_task':'task', 'source_before':'PbadQ',
                   'target_start':1, 'target_end':4, 'target_block':'bad',
@@ -125,6 +144,83 @@ class OracleRepairTests(unittest.TestCase):
         self.assertEqual(validate_repair_response({'prefix_after':'fixed'}), 'fixed')
         with self.assertRaises(ValueError):
             validate_repair_response({'prefix_after':'fixed', 'strict_ppl':False})
+
+    def test_failed_prefix_is_repaired_in_same_session(self):
+        client = self.FakeClient([
+            '{"prefix_after":"Pstillbad"}', '{"prefix_after":"Pfixed"}'
+        ])
+        compile_results = [
+            {'status':'COMPILE_FAIL', 'exit_code':1, 'stdout':'',
+             'stderr':'prefix line 1: error', 'command':[]},
+            {'status':'SUCCESS', 'exit_code':0, 'stdout':'', 'stderr':'', 'command':[]},
+        ]
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch('scripts.repair_with_dsh.compile_source', side_effect=compile_results):
+            records, after, status = run_rounds(self.packet(), Path(tmp), Path('typst'),
+                                                client, 'one-session', 4, 10)
+        self.assertEqual(status, 'PREFIX_COMPILE_SUCCESS')
+        self.assertEqual(after, 'PfixedSECRET_SUFFIX')
+        self.assertEqual(len(records), 2)
+        self.assertIn('prefix line 1: error', client.prompts[1])
+        self.assertNotIn('SECRET_SUFFIX', client.prompts[1])
+
+    def test_identical_failed_candidate_stops_as_no_progress(self):
+        response = '{"prefix_after":"Pstillbad"}'
+        client = self.FakeClient([response, response, response])
+        failed = {'status':'COMPILE_FAIL', 'exit_code':1, 'stdout':'',
+                  'stderr':'same diagnostic', 'command':[]}
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch('scripts.repair_with_dsh.compile_source', return_value=failed):
+            records, after, status = run_rounds(self.packet(), Path(tmp), Path('typst'),
+                                                client, 'one-session', 4, 10)
+        self.assertEqual(status, 'NO_PROGRESS')
+        self.assertIsNone(after)
+        self.assertEqual(len(records), 2)
+
+    def test_transport_failure_does_not_consume_repair_rounds(self):
+        class FailedClient:
+            def prompt(self, session_id, prompt, timeout):
+                return {'message_id':'1', 'text':'',
+                        'turn_end':{'reason':{'kind':'error', 'error':{'code':'TRANSPORT'}}},
+                        'tool_calls':[]}
+        with tempfile.TemporaryDirectory() as tmp:
+            records, after, status = run_rounds(self.packet(), Path(tmp), Path('typst'),
+                                                FailedClient(), 'one-session', 4, 10)
+        self.assertEqual(status, 'ORACLE_RUNTIME_FAILURE')
+        self.assertIsNone(after)
+        self.assertEqual(len(records), 1)
+
+    def test_any_oracle_tool_call_is_a_protocol_violation(self):
+        class ToolClient:
+            def prompt(self, session_id, prompt, timeout):
+                return {'message_id':'1', 'text':'{"prefix_after":"Pfixed"}',
+                        'turn_end':{'reason':'completed'}, 'tool_calls':['bash']}
+        with tempfile.TemporaryDirectory() as tmp:
+            records, after, status = run_rounds(self.packet(), Path(tmp), Path('typst'),
+                                                ToolClient(), 'one-session', 4, 10)
+        self.assertEqual(status, 'PROTOCOL_VIOLATION')
+        self.assertEqual(records[0]['tool_calls'], ['bash'])
+        self.assertIsNone(after)
+
+    def test_dsh_tool_producers_are_disabled_by_home_patch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            disable_model_tools(home)
+            patch_text = (home/'cordis.patch.yml').read_text()
+        self.assertIn('- id: tool-bash\n  disabled: true', patch_text)
+        self.assertIn('- id: tool-web\n  disabled: true', patch_text)
+
+    def test_feedback_excludes_unrelated_document_context(self):
+        text = feedback_prompt(1, 'COMPILE_FAIL', 'only this diagnostic')
+        self.assertIn('only this diagnostic', text)
+        self.assertIn('immutable suffix', text)
+        self.assertNotIn('SECRET_SUFFIX', text)
+
+    def test_diagnostic_progress_hash_ignores_round_path(self):
+        first = 'error: bad\n  ┌─ runs/x/round-01/prefix.after.typ:7:2\n  │\n7 │ #bad\n'
+        second = 'error: bad\n  ┌─ runs/x/round-02/prefix.after.typ:7:2\n  │\n7 │ #bad\n'
+        self.assertEqual(compiler_diagnostic_sha256(first),
+                         compiler_diagnostic_sha256(second))
 
 
 if __name__ == '__main__':

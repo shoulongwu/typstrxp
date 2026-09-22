@@ -5,8 +5,8 @@ C0 真实任务 → C1 原子能力验证 → C2 独立前缀范围修复。
 
 ## 入口
 
-- [实施协议](experiments_guide.md)：`0.4.0-draft`。C0 由被测模型生成、dsh oracle 修复并推进错误轨迹；C1/C2 才调用同一被测模型做能力与 PPL 验证。目标 block 用于定位，允许修改从文件开头至目标 block 结束的完整前缀，后文保持不变。
-- [原始审阅报告](docs/review.md) / [本轮修订记录](docs/revision-0.3.md)。
+- [实施协议](experiments_guide.md)：`0.5.0-draft`。C0 由被测模型生成、dsh oracle 在同一会话内根据 prefix 编译反馈迭代并推进错误轨迹；C1/C2 才调用同一被测模型做能力与 PPL 验证。目标 block 用于定位，允许修改从文件开头至目标 block 结束的完整前缀，后文保持不变。
+- [原始审阅报告](docs/review.md) / [本轮修订记录](docs/revision-0.5.md)。
 - [C0 数据集](data/c0_tasks.json)：10 题、5 类，统一 2–5 页。
 - [试点配置](configs/pilot.json)：模型、路由、凭据映射、C0 oracle 及审核配置。
 - [原稿备份](docs/archive/experiments_guide.original.md) / [v0.2 协议](docs/archive/experiments_guide.v0.2.md) / [v0.3 协议](docs/archive/experiments_guide.v0.3.md)；旧 block-only、同模型 C0 repair 和 dsh-oracle 条件分开统计。
@@ -63,7 +63,7 @@ python3 scripts/smoke_qwen.py --run-dir runs/qwen-smoke-new --task-id C0_01 --ty
 
 ## dsh + step-5-preview：C0 oracle 与事件审核
 
-使用本机已配置的 dsh step provider；桥接脚本额外需要 PyYAML，见 `requirements-review.txt`。C0 repair oracle 与错误盘点/审核分别使用独立 headless 会话和独立运行目录，并显式固定 step-5-preview，不修改用户全局 dsh 配置。被测模型的 repair 只在 C2 执行，dsh 输出不得传入 C1/C2。
+使用本机已配置的 dsh step provider；桥接脚本额外需要 PyYAML，见 `requirements-review.txt`。C0 repair oracle 使用禁用模型工具的 SDK 会话，错误盘点/审核使用独立 headless 会话和独立运行目录，并显式固定 step-5-preview，不修改用户全局 dsh 配置。运行器还会把任何意外 tool call 判为协议违规。被测模型的 repair 只在 C2 执行，dsh 输出不得传入 C1/C2。
 
 C0 oracle repair 接收已冻结的事件 packet，并对候选输出执行后文不变检查和真实编译：
 
@@ -71,9 +71,9 @@ C0 oracle repair 接收已冻结的事件 packet，并对候选输出执行后�
 python3 scripts/repair_with_dsh.py --packet runs/event-frozen.json --output-dir runs/oracle-repair-new --typst .runtime/typst-0.12.0/typst-x86_64-unknown-linux-musl/typst
 ```
 
-packet 必须包含 `event_id`、`original_task`、`source_before`、`target_start`、`target_end`、`target_block`、`selected_diagnostic` 和 `target_diagnostics`。target 文本必须与冻结源码坐标完全一致；`target_diagnostics` 只能包含诊断 span 落在该 target block 内的错误，并必须包含 selected primary error。oracle 只返回修复后的 editable prefix，运行器与冻结后文拼接。prefix 编译失败记为 `ORACLE_REPAIR_FAIL`；编译通过的候选仍保持 `PENDING_REVIEW`，只有独立语义审核通过才能成为下一份 C0 快照。
+packet 必须包含 `event_id`、`original_task`、`source_before`、`target_start`、`target_end`、`target_block`、`selected_diagnostic` 和 `target_diagnostics`。target 文本必须与冻结源码坐标完全一致；`target_diagnostics` 只能包含诊断 span 落在该 target block 内的错误，并必须包含 selected primary error。oracle 只返回修复后的 editable prefix。prefix 失败时运行器在同一会话内最多反馈 4 轮，且只反馈该 prefix 的编译诊断；连续两轮候选与诊断均相同则停止。prefix 通过后才与冻结后文拼接并完整编译；候选仍保持 `PENDING_REVIEW`，只有独立语义审核通过才能成为下一份 C0 快照。
 
-真实通路验证见 [dsh C0 Oracle 冒烟结果](docs/dsh-oracle-smoke.md)：Step-5 已能以 low reasoning 返回结构化前缀，但在该复合 target 上的两个独立候选均未通过 prefix compile，因此不能晋升为下一快照。这也验证了 compiler gate 会拒绝 oracle 的错误判断。
+真实通路验证见 [dsh C0 Oracle 冒烟结果](docs/dsh-oracle-smoke.md)：一次性模式下两个独立候选均未通过 prefix compile；改为禁用工具的同一 SDK 会话反馈后，第 2 轮通过 prefix compile，并且目标块之后的完整文件错误没有泄漏回修复会话。候选仍须独立语义审核才能晋升为下一快照。
 
 ```bash
 python3 scripts/review_with_dsh.py --packet runs/event-evidence.json --output-dir runs/review-new
